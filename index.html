@@ -681,12 +681,30 @@ let data = {};
 function startFirebaseSync() {
   db.ref('rpe_data').on('value', snapshot => {
     data = snapshot.val() || {};
-    renderPlayerGrid();
+    // Normalize Firebase keys (underscores) back to player name format (spaces)
+    Object.keys(data).forEach(day => {
+      ['morning','afternoon'].forEach(s => {
+        if (!data[day][s]) return;
+        const session = data[day][s];
+        Object.keys(session).forEach(k => {
+          if (k.includes('_')) {
+            const normalKey = k.replace(/_/g, ' ');
+            session[normalKey] = session[k];
+            delete session[k];
+          }
+        });
+      });
+    });
+    PLAYERS.forEach(p => updatePlayerCard(p.name));
     updateStats();
     refreshDayNav();
     renderSessionChart();
     renderTrendChart();
     renderSummaryTable();
+  }, err => {
+    console.error('Firebase error:', err);
+    document.getElementById('conn-label').textContent = 'Error — check rules';
+    document.getElementById('conn-dot').style.background = '#ef4444';
   });
 }
 
@@ -1246,8 +1264,24 @@ buildDayNav();
 buildPlayerSelect();
 document.getElementById('dayTitle').textContent = fmtDay(currentDay) + ' — Morning';
 
-// Start Firebase real-time sync (renders everything on first data load)
+// Render immediately with empty data so page is never blank
+renderPlayerGrid();
+updateStats();
+renderSessionChart();
+renderTrendChart();
+renderSummaryTable();
+
+// Then start Firebase — updates UI whenever data arrives or changes
 startFirebaseSync();
+
+// Fallback: if Firebase hasn't connected in 8 seconds, show warning
+setTimeout(() => {
+  const dot = document.getElementById('conn-dot');
+  if (dot && dot.style.background !== 'rgb(34, 197, 94)') {
+    document.getElementById('conn-label').textContent = 'Check connection';
+    dot.style.background = '#eab308';
+  }
+}, 8000);
 </script>
 </body>
 </html>
