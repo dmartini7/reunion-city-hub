@@ -723,7 +723,7 @@ function setRPE(player, value) {
   ensureDay(currentDay);
   // Sanitise player name for Firebase key (replace spaces with underscores)
   const key = player.replace(/ /g, '_');
-  db.ref(\`rpe_data/\${currentDay}/\${currentSession}/\${key}\`).set(value);
+  db.ref('rpe_data/' + currentDay + '/' + currentSession + '/' + key).set(value);
   // Optimistic local update for instant UI feedback
   data[currentDay][currentSession][player] = value;
   updatePlayerCard(player);
