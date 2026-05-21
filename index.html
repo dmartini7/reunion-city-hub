@@ -6,8 +6,6 @@
 <title>Reunion City Player Hub</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
   :root {
     --bg-deep:    #0A1052;
@@ -642,34 +640,23 @@ function fmtDay(iso) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-// ── Firebase ──
-const firebaseConfig = {
-  apiKey: "AIzaSyB8jM-hIpyq6E2oqKoxYEXgzivZHwdQHwU",
-  authDomain: "reunion-city-hub.firebaseapp.com",
-  databaseURL: "https://reunion-city-hub-default-rtdb.firebaseio.com",
-  projectId: "reunion-city-hub",
-  storageBucket: "reunion-city-hub.firebasestorage.app",
-  messagingSenderId: "402209908838",
-  appId: "1:402209908838:web:be4bfeb4ec736f16c625a7"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
+// ── Firebase REST API ──
+const FB_URL = 'https://reunion-city-hub-default-rtdb.firebaseio.com/rpe_data';
 
-// Connection status indicator
-db.ref('.info/connected').on('value', snap => {
+function setConnStatus(online) {
   const dot   = document.getElementById('conn-dot');
   const label = document.getElementById('conn-label');
   const btn   = document.getElementById('syncBtn');
-  if (snap.val()) {
-    dot.style.background   = '#22c55e';
-    label.textContent      = 'Live';
+  if (online) {
+    dot.style.background = '#22c55e';
+    label.textContent    = 'Live';
     if (btn) { btn.textContent = '● Live Sync'; btn.style.color = '#22c55e'; }
   } else {
-    dot.style.background   = '#ef4444';
-    label.textContent      = 'Offline';
+    dot.style.background = '#ef4444';
+    label.textContent    = 'Offline';
     if (btn) { btn.textContent = '○ Offline'; btn.style.color = '#ef4444'; }
   }
-});
+}
 
 // State
 let currentDay = DAYS[0];
@@ -677,35 +664,56 @@ let currentSession = 'morning';
 let threshold = 7;
 let data = {};
 
-// Real-time Firebase listener — syncs all devices instantly
-function startFirebaseSync() {
-  db.ref('rpe_data').on('value', snapshot => {
-    data = snapshot.val() || {};
-    // Normalize Firebase keys (underscores) back to player name format (spaces)
-    Object.keys(data).forEach(day => {
-      ['morning','afternoon'].forEach(s => {
-        if (!data[day][s]) return;
-        const session = data[day][s];
-        Object.keys(session).forEach(k => {
-          if (k.includes('_')) {
-            const normalKey = k.replace(/_/g, ' ');
-            session[normalKey] = session[k];
-            delete session[k];
-          }
-        });
+// Normalize Firebase keys (underscores → spaces)
+function normalizeData(raw) {
+  if (!raw) return {};
+  const out = {};
+  Object.keys(raw).forEach(day => {
+    out[day] = { morning: {}, afternoon: {} };
+    ['morning','afternoon'].forEach(s => {
+      if (!raw[day][s]) return;
+      Object.keys(raw[day][s]).forEach(k => {
+        const name = k.replace(/_/g, ' ');
+        out[day][s][name] = raw[day][s][k];
       });
     });
-    PLAYERS.forEach(p => updatePlayerCard(p.name));
-    updateStats();
-    refreshDayNav();
-    renderSessionChart();
-    renderTrendChart();
-    renderSummaryTable();
-  }, err => {
-    console.error('Firebase error:', err);
-    document.getElementById('conn-label').textContent = 'Error — check rules';
-    document.getElementById('conn-dot').style.background = '#ef4444';
   });
+  return out;
+}
+
+// Fetch all data from Firebase and refresh UI
+function fetchData() {
+  fetch(FB_URL + '.json')
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(raw => {
+      data = normalizeData(raw);
+      PLAYERS.forEach(p => updatePlayerCard(p.name));
+      updateStats();
+      refreshDayNav();
+      renderSessionChart();
+      renderTrendChart();
+      renderSummaryTable();
+      setConnStatus(true);
+    })
+    .catch(() => setConnStatus(false));
+}
+
+// Write one RPE value to Firebase
+function writeRPE(day, session, player, value) {
+  const key = player.replace(/ /g, '_');
+  fetch(FB_URL + '/' + day + '/' + session + '/' + key + '.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value)
+  })
+  .then(r => { if (!r.ok) throw new Error(r.status); setConnStatus(true); })
+  .catch(() => setConnStatus(false));
+}
+
+// Poll Firebase every 15 seconds so all viewers stay in sync
+function startFirebaseSync() {
+  fetchData();
+  setInterval(fetchData, 15000);
 }
 
 function showSyncStatus() {
@@ -721,15 +729,14 @@ function ensureDay(day) {
 
 function setRPE(player, value) {
   ensureDay(currentDay);
-  // Sanitise player name for Firebase key (replace spaces with underscores)
-  const key = player.replace(/ /g, '_');
-  db.ref('rpe_data/' + currentDay + '/' + currentSession + '/' + key).set(value);
   // Optimistic local update for instant UI feedback
   data[currentDay][currentSession][player] = value;
   updatePlayerCard(player);
   updateStats();
   refreshDayNav();
   renderSessionChart();
+  // Persist to Firebase
+  writeRPE(currentDay, currentSession, player, value);
 }
 
 function getRPE(player, day, session) {
@@ -1274,14 +1281,7 @@ renderSummaryTable();
 // Then start Firebase — updates UI whenever data arrives or changes
 startFirebaseSync();
 
-// Fallback: if Firebase hasn't connected in 8 seconds, show warning
-setTimeout(() => {
-  const dot = document.getElementById('conn-dot');
-  if (dot && dot.style.background !== 'rgb(34, 197, 94)') {
-    document.getElementById('conn-label').textContent = 'Check connection';
-    dot.style.background = '#eab308';
-  }
-}, 8000);
+
 </script>
 </body>
 </html>
