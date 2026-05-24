@@ -421,11 +421,50 @@
   .status-at    { color: var(--accent); font-weight: 700; }
   .status-empty { color: var(--text-dim); }
 
+  /* ── Mobile day picker ── */
+  .mobile-day-picker {
+    display: none;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 2px 0 6px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-day-picker::-webkit-scrollbar { display: none; }
+  .mobile-day-pill {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(202,214,255,0.2);
+    background: rgba(42,52,128,0.5);
+    color: var(--text-dim);
+    font-family: 'Calibri', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .mobile-day-pill.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
   @media (max-width: 900px) {
     .layout { grid-template-columns: 1fr; }
     .chart-grid { grid-template-columns: 1fr; }
     .stats-row { grid-template-columns: repeat(2, 1fr); }
     .sidebar { display: none; }
+    .mobile-day-picker { display: flex; }
+    .main { padding: 16px; gap: 16px; }
+    .player-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+    .player-card { padding: 11px 12px; }
+    .rpe-btn { width: 27px; height: 27px; font-size: 0.72rem; }
+    header h1 { font-size: 1.1rem; }
+    header p { font-size: 0.68rem; }
+    header .logos img { height: 38px; }
+    .threshold-bar { padding: 10px 14px; gap: 8px; }
+    .threshold-bar .btn-group { width: 100%; justify-content: flex-end; }
   }
 </style>
 </head>
@@ -477,6 +516,9 @@
 
   <!-- ── Main ── -->
   <div class="main">
+
+    <!-- Mobile Day Picker (hidden on desktop, shown on mobile) -->
+    <div class="mobile-day-picker" id="mobileDayPicker"></div>
 
     <!-- Session Bar -->
     <div class="session-bar">
@@ -590,8 +632,9 @@ const PLAYERS = [
   { name: "Haley Johnson",       pos: "MF" },
   { name: "Fernanda Sarellano", pos: "M"  },
   { name: "Savannah Leifried",  pos: "D/MF" },
-  { name: "Sealey Strawn",      pos: "M"  },
   { name: "Michelle Betancourt",pos: "M"  },
+  { name: "Cate Sarinopoulos",  pos: ""   },
+  { name: "Viet-Thy Tran",      pos: ""   },
   { name: "Ashleigh Williams",  pos: "FW" },
   { name: "Yiselle Bernal",     pos: "D"  },
   { name: "Kiara Gilmore",      pos: "D"  },
@@ -788,6 +831,25 @@ function buildDayNav() {
     btn.onclick = () => selectDay(day);
     nav.appendChild(btn);
   });
+  buildMobileDayPicker();
+}
+
+function buildMobileDayPicker() {
+  const container = document.getElementById('mobileDayPicker');
+  if (!container) return;
+  container.innerHTML = '';
+  DAYS.forEach(day => {
+    const pill = document.createElement('button');
+    pill.className = 'mobile-day-pill' + (day === currentDay ? ' active' : '');
+    pill.dataset.day = day;
+    const d = new Date(day + 'T12:00:00');
+    pill.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    pill.onclick = () => selectDay(day);
+    container.appendChild(pill);
+  });
+  // Scroll active day into view
+  const active = container.querySelector('.mobile-day-pill.active');
+  if (active) active.scrollIntoView({ inline: 'center', behavior: 'smooth', block: 'nearest' });
 }
 
 function refreshDayNav() {
@@ -813,6 +875,12 @@ function selectDay(day) {
   currentDay = day;
   document.getElementById('dayTitle').textContent = fmtDay(day) + ' — ' + capitalize(currentSession);
   refreshDayNav();
+  // Sync mobile pills
+  document.querySelectorAll('.mobile-day-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.day === day);
+  });
+  const active = document.querySelector('.mobile-day-pill.active');
+  if (active) active.scrollIntoView({ inline: 'center', behavior: 'smooth', block: 'nearest' });
   renderPlayerGrid();
   updateStats();
   renderSessionChart();
